@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package game;
+
+// Настройки для генерации Kotlin/Java кода
+option java_package = "com.game.grpc";
+option java_multiple_files = true;
+
+// --- СЕРВИСЫ ---
+
+// Сервис для входа в игру и получения данных о мире
+service MatchmakingService {
+  // Игрок запрашивает поиск матча
+  rpc JoinSession (JoinRequest) returns (JoinResponse);
+  
+  // Получение структуры локации (твои прямоугольные комнаты из PDF)
+  rpc GetMapLayout (MapRequest) returns (MapLayout);
+}
+
+// Сервис для игрового процесса (реальное время)
+service GameplayService {
+  // Стрим игровых событий (кто умер, где появился лут, таймер сессии)
+  rpc StreamEvents (SessionRequest) returns (stream GameEvent);
+  
+  // Отправка действий игрока (перемещение, атака)
+  rpc SendAction (PlayerAction) returns (ActionResponse);
+}
+
+// --- СООБЩЕНИЯ ---
+
+message JoinRequest {
+  string playerId = 1;
+  string playerToken = 2; // Для будущей авторизации
+}
+
+message JoinResponse {
+  string sessionId = 1;
+  string status = 2;       // WAITING, READY, ERROR
+  int64 serverTime = 3;    // Для синхронизации таймера (из твоего ТЗ)
+}
+
+message MapRequest {
+  string sessionId = 1;
+}
+
+// Структура локации из твоего ТЗ (Page 9: Прямоугольные подлокации)
+message MapLayout {
+  string sessionId = 1;
+  repeated SubLocation subLocations = 2;
+  int32 timerSeconds = 3;  // Таймер до закрытия локации
+}
+
+message SubLocation {
+  string id = 1;
+  float x = 2;             // Координаты в сетке
+  float y = 3;
+  float width = 4;         // "Одинаковый размер" из ТЗ
+  float height = 5;
+  repeated ExitPoint exits = 6;    // Точки выхода (Tarkov-style)
+  repeated SpawnPoint spawns = 7;  // Точки спавна
+}
+
+message ExitPoint {
+  string id = 1;
+  float posX = 2;
+  float posY = 3;
+  bool isActive = 4;
+}
+
+message SpawnPoint {
+  float posX = 1;
+  float posY = 2;
+}
+
+// События игрового мира
+message GameEvent {
+  enum EventType {
+    PLAYER_SPAWNED = 0;
+    PLAYER_DIED = 1;       // Вызывает потерю лута (из ТЗ)
+    LOOT_DROPPED = 2;
+    EXTRACTED = 3;         // Игрок успешно вышел
+    SESSION_ENDING = 4;    // Таймер почти истек
+  }
+  EventType type = 1;
+  string payload = 2;      // JSON или ID объекта
+  int64 timestamp = 3;
+}
+
+message PlayerAction {
+  string sessionId = 1;
+  string playerId = 2;
+  float targetPosX = 3;    // Куда игрок движется
+  float targetPosY = 4;
+  bool isAttacking = 5;
+}
+
+message ActionResponse {
+  bool accepted = 1;
+}
+
+message SessionRequest {
+  string sessionId = 1;
+}
