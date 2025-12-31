@@ -1,0 +1,4 @@
+dependencies {
+    implementation(project(":adapters:grpc"))
+    implementation("io.grpc:grpc-netty-shaded:1.59.0")
+}

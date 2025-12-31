@@ -1,0 +1,68 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        mavenLocal()
+        google()
+    }
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
+        classpath "com.google.protobuf:protobuf-gradle-plugin:$protobufPluginVersion"
+    }
+}
+
+plugins {
+    id("com.google.protobuf") version "0.9.4"
+}
+
+allprojects {
+    apply plugin: 'eclipse'
+    apply plugin: 'idea'
+    apply plugin: 'java'
+    apply plugin: 'com.google.protobuf'
+}
+
+configure(subprojects) {
+    apply plugin: 'java-library'
+    apply plugin: 'kotlin'
+    apply plugin: 'java'
+    repositories {
+        mavenCentral()
+    }
+    sourceCompatibility = 17
+    compileJava {
+        options.incremental = true
+    }
+
+    kotlin {
+        jvmToolchain(17)
+    }
+}
+
+subprojects {
+    ext.loadProperties = {
+        def propertiesFile = rootProject.file('gradle.properties')
+        if (propertiesFile.exists()) {
+            println "Loading properties from ${propertiesFile}"
+            def properties = new Properties()
+            properties.load(propertiesFile.newDataInputStream())
+            properties.each { key, value ->
+                project.ext.set(key, value)
+            }
+        }
+    }
+
+    loadProperties()
+
+    version = '1.0.0'
+    ext.appName = 'TaleStoriesBackend'
+    repositories {
+        mavenCentral()
+        mavenLocal()
+    }
+
+    if (name != "adapters") {
+        apply plugin: 'kotlin'
+    }
+}
+
+eclipse.project.name = 'TaleStoriesBackend' + '-parent'

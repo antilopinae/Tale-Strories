@@ -5,15 +5,26 @@ Intermediate/
 Saved/
 !Build/*/Resources/*.plist
 
+Backend/.gradle/
+Backend/build/
+Backend/*/build/
+Backend/local.properties
+Backend/.idea/
+Backend/*.iml
+
+.vs/
+.idea/
 *.xcodeproj/
 *.xcworkspace/
-.idea/
 *.sln
 *.suo
 *.opensdf
 *.sdf
 *.VC.db
 *.VC.opendb
+*.layout
+*.bak
+.cmake/
 
 ThirdParty/build/
 ThirdParty/generated/
@@ -23,13 +34,22 @@ ThirdParty/CMakeCache.txt
 ThirdParty/*.cmake
 ThirdParty/scripts/*.log
 
+ThirdParty/vcpkg/*
+
 .DS_Store
 *.swp
 *.lock
-
 *.log
 *.dmp
 *.report
 
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+
+.gradle/
+**/build/
+!**/src/**/build/
