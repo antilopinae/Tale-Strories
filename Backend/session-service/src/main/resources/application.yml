@@ -13,3 +13,10 @@ spring:
 grpc:
   server:
     port: 9090
+
+game:
+  auth:
+    # Тот самый Client ID из Google Console (Backend - Web Application)
+    google-client-id: "765238904870-2uh5vglknaivpkl4l1mtl64m3mbajq62.apps.googleusercontent.com"
+    # Любая длинная случайная строка для подписи ТВОИХ токенов
+    jwt-secret: "my-super-secure-game-secret-key-12345"

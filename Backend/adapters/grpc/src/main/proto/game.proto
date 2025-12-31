@@ -5,15 +5,16 @@ option java_multiple_files = true;
 
 package game;
 
+// Сервис для игровых действий
 service GameService {
+  // Теперь запрос пустой, так как playerId сервер возьмет из JWT
   rpc JoinSession (JoinRequest) returns (JoinResponse);
 
   rpc GetMapLayout (MapRequest) returns (MapLayout);
 }
 
-message JoinRequest {
-  string playerId = 1;
-}
+// В будущем сюда можно добавить, например, имя комнаты или регион
+message JoinRequest {}
 
 message JoinResponse {
   string sessionId = 1;
@@ -35,4 +36,20 @@ message SubLocation {
   float y = 3;
   float width = 4;
   float height = 5;
+}
+
+// Сервис авторизации (точка входа)
+service AuthService {
+  // Обмен внешнего токена Google на внутренний токен игры
+  rpc AuthenticateWithGoogle (GoogleAuthRequest) returns (AuthResponse);
+}
+
+message GoogleAuthRequest {
+  string id_token = 1;
+}
+
+message AuthResponse {
+  string access_token = 1;
+  string player_id = 2;
+  int64 expires_at = 3;
 }

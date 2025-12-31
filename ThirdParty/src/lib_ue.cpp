@@ -1,42 +1,70 @@
-#include <lib_ue.hpp>
+#include "lib_ue.hpp"
 #include <fmt/core.h>
 
 #pragma push_macro("check")
 #undef check
-
 #include <grpcpp/grpcpp.h>
 #include "game.grpc.pb.h"
-
 #pragma pop_macro("check")
 
 using grpc::Channel;
 using grpc::ClientContext;
 using grpc::Status;
+using game::AuthService;
 using game::GameService;
-using game::JoinRequest;
-using game::JoinResponse;
 
-int AddNumbers(int a, int b) {
-    auto channel = grpc::CreateChannel("localhost:9090", grpc::InsecureChannelCredentials());
-    auto stub = GameService::NewStub(channel);
+// Внутренняя реализация со стабами
+struct GrpcReproxer::Impl {
+    std::unique_ptr<AuthService::Stub> auth_stub;
+    std::unique_ptr<GameService::Stub> game_stub;
+};
 
-    // 2. Готовим запрос (JoinSession)
-    JoinRequest request;
-    request.set_playerid("Unreal_User");
+GrpcReproxer::GrpcReproxer(const std::string& target_url) : target_url_(target_url) {
+    auto channel = grpc::CreateChannel(target_url, grpc::InsecureChannelCredentials());
+    impl_ = new Impl();
+    impl_->auth_stub = AuthService::NewStub(channel);
+    impl_->game_stub = GameService::NewStub(channel);
+}
 
-    JoinResponse response;
+GrpcReproxer::~GrpcReproxer() {
+    delete impl_;
+}
+
+bool GrpcReproxer::ConnectToServer(const std::string& google_id_token) {
+    game::GoogleAuthRequest request;
+    request.set_id_token(google_id_token);
+
+    game::AuthResponse response;
     ClientContext context;
 
-    // 3. Выполняем вызов
-    Status status = stub->JoinSession(&context, request, &response);
+    // 1. Обмениваем Google Token на наш JWT
+    Status status = impl_->auth_stub->AuthenticateWithGoogle(&context, request, &response);
 
     if (status.ok()) {
-        // Если успешно, возвращаем сумму + логируем ID сессии
-        fmt::print("gRPC Success! SessionID: {}\n", response.sessionid());
-        return a + b;
+        this->jwt_token_ = response.access_token();
+        fmt::print("Successfully authenticated! PlayerID: {}\n", response.player_id());
+        return true;
     } else {
-        fmt::print("gRPC Failed: {}\n", status.error_message());
-        return -1;
+        fmt::print("Auth Failed: {}\n", status.error_message());
+        return false;
     }
-    return a + b;
+}
+
+bool GrpcReproxer::JoinGameSession(std::string& out_session_id) {
+    if (jwt_token_.empty()) return false;
+
+    game::JoinRequest request; // Теперь он пустой по нашему новому proto
+    game::JoinResponse response;
+    ClientContext context;
+
+    // ВАЖНО: Добавляем JWT в метаданные каждого игрового вызова
+    context.AddMetadata("authorization", "Bearer " + jwt_token_);
+
+    Status status = impl_->game_stub->JoinSession(&context, request, &response);
+
+    if (status.ok()) {
+        out_session_id = response.sessionid();
+        return true;
+    }
+    return false;
 }

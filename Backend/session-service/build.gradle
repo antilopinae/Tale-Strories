@@ -11,6 +11,9 @@ dependencies {
   implementation 'org.springframework.kafka:spring-kafka'
 
   implementation 'net.devh:grpc-server-spring-boot-starter:2.15.0.RELEASE'
+
+  implementation 'com.google.api-client:google-api-client:2.2.0'
+  implementation 'com.auth0:java-jwt:4.4.0'
 }
 
 bootJar {

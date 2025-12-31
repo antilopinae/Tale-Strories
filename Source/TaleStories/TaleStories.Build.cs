@@ -11,7 +11,13 @@ public class TaleStories : ModuleRules
 			"Engine",
 			"InputCore",
 			"EnhancedInput",
-			"ThirdPartyLibUE"
+			"ThirdPartyLibUE",
+			"Sockets",
+			"Networking",
+			"HTTP",
+			"WebBrowser",
+			"Json",        // Добавь это
+			"JsonUtilities" // Добавь это
 		});
 		
 		PrivateDependencyModuleNames.AddRange(new string[] { });
