@@ -16,6 +16,7 @@ Saved/
 *.VC.opendb
 
 ThirdParty/build/
+ThirdParty/generated/
 ThirdParty/cmake-build-*/
 ThirdParty/CMakeFiles/
 ThirdParty/CMakeCache.txt
