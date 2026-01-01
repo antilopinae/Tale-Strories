@@ -37,6 +37,14 @@ services:
     build:
       context: . # Контекст — корень проекта, чтобы видеть ThirdParty
       dockerfile: DedicatedServer/Dockerfile
+
+    mem_limit: 10g
+    memswap_limit: 10g
+
+    environment:
+      VCPKG_MAX_CONCURRENCY: 6
+      CXXFLAGS: "-O1 -g0"
+      CFLAGS: "-O1 -g0"
     # Эта команда просто выводит текст и завершает работу контейнера.
     # Но Docker Compose при запуске проверит, собран ли образ.
     command: [ "echo", "Game Server Image is ready" ]

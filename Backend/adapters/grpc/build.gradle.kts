@@ -1,4 +1,5 @@
 import com.google.protobuf.gradle.*
+import org.gradle.internal.impldep.org.junit.platform.engine.support.descriptor.DirectorySource
 
 val grpcKotlinVersion: String by project
 val grpcVersion: String by project
@@ -8,6 +9,14 @@ val kotlinxCoroutinesVersion: String by project
 plugins {
     kotlin("jvm")
     id("com.google.protobuf")
+}
+
+sourceSets {
+    main {
+        proto {
+            srcDir(File(projectDir, "../../../Api/proto"))
+        }
+    }
 }
 
 dependencies {

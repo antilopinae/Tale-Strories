@@ -20,7 +20,7 @@ class DedicatedServiceImpl final : public DedicatedService::Service {
 };
 
 void RunServer() {
-    std::string server_address("0.0.0.0:9090"); // Порт внутри контейнера всегда 9090
+    std::string server_address("0.0.0.0:9000"); // Порт внутри контейнера всегда 9000
     DedicatedServiceImpl service;
 
     ServerBuilder builder;

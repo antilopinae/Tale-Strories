@@ -4,7 +4,7 @@ FROM ubuntu:22.04 AS build-env
 # Ставим зависимости (добавил ninja-build для ускорения и g++ для компиляции)
 RUN apt-get update && apt-get install -y \
     build-essential cmake git curl zip unzip tar pkg-config ca-certificates \
-    ninja-build g++-11
+    ninja-build g++-11 ccache
 
 # Устанавливаем переменные окружения для компилятора
 ENV CC=gcc
@@ -28,7 +28,8 @@ COPY ThirdParty/cmake ThirdParty/cmake
 WORKDIR /src/DedicatedServer
 RUN cmake -G Ninja -B build -S . \
     -DCMAKE_BUILD_TYPE=Release \
-    -DVCPKG_TARGET_TRIPLET=arm64-linux # Для Mac M1/M2/M3 используем arm64-linux
+    -DVCPKG_TARGET_TRIPLET=arm64-linux
+    # Для Mac M1/M2/M3 используем arm64-linux
 RUN cmake --build build --config Release
 
 # ФИНАЛЬНЫЙ ОБРАЗ
@@ -39,5 +40,5 @@ WORKDIR /app
 # Копируем бинарник из стадии сборки
 COPY --from=build-env /src/DedicatedServer/build/game-server .
 
-EXPOSE 9090
+EXPOSE 9000
 ENTRYPOINT ["./game-server"]
