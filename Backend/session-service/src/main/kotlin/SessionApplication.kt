@@ -8,15 +8,20 @@ import net.devh.boot.grpc.server.service.GrpcService
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
-import org.springframework.kafka.core.KafkaTemplate
-import org.springframework.stereotype.Component
-import java.util.*
-import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier
+import org.springframework.stereotype.Service
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import java.util.Date
+import com.github.dockerjava.api.DockerClient
+import com.github.dockerjava.core.DefaultDockerClientConfig
+import com.github.dockerjava.httpclient5.ApacheDockerHttpClient
+import com.github.dockerjava.core.DockerClientImpl
+import com.github.dockerjava.api.model.HostConfig
+import com.github.dockerjava.api.model.PortBinding
+import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 
 @SpringBootApplication
 class SessionApplication
@@ -25,60 +30,138 @@ fun main(args: Array<String>) {
     runApplication<SessionApplication>(*args)
 }
 
-// Контекст для передачи ID игрока между интерцептором и сервисами
 object SecurityContext {
     val PLAYER_ID_KEY: Context.Key<String> = Context.key("playerId")
 }
 
-@GrpcService
-class AuthGrpcService(
-    @Value("\${game.auth.google-client-id}") private val googleClientId: String,
-    @Value("\${game.auth.jwt-secret}") private val jwtSecret: String
-) : AuthServiceGrpc.AuthServiceImplBase() {
-
-    private val verifier = GoogleIdTokenVerifier.Builder(NetHttpTransport(), GsonFactory())
-        .setAudience(listOf(googleClientId))
+// --- СЕРВИС УПРАВЛЕНИЯ DOCKER ---
+@Service
+class DockerOrchestrator(
+    // Берем имя образа из docker-compose environment или ставим дефолт
+    @Value("\${GAME_SERVER_IMAGE:tale-stories-cpp-server:latest}")
+    private val imageGameServer: String
+) {
+    val config = DefaultDockerClientConfig.createDefaultConfigBuilder().build()
+    val httpClient = ApacheDockerHttpClient.Builder()
+        .dockerHost(config.dockerHost)
+        .sslConfig(config.sslConfig)
         .build()
 
-    override fun authenticateWithGoogle(request: GoogleAuthRequest, responseObserver: StreamObserver<AuthResponse>) {
+    val dockerClient = DockerClientImpl.getInstance(config, httpClient)
+
+    fun spawnGameServer(roomId: String): Int {
+        val port = 55000 + Random().nextInt(1000)
+
+        // Создаем и запускаем контейнер с C++ сервером
+        val container = dockerClient.createContainerCmd(imageGameServer)
+            .withName("room_${roomId}_${System.currentTimeMillis()}")
+            .withHostConfig(HostConfig.newHostConfig().withPortBindings(PortBinding.parse("$port:9090")))
+            .exec()
+
+        dockerClient.startContainerCmd(container.id).exec()
+        println("🚀 Docker: Запущен игровой сервер для комнаты $roomId на порту $port")
+        return port
+    }
+}
+
+// --- LOBBY SERVICE (Управление комнатами) ---
+@GrpcService
+class LobbyGrpcService(private val orchestrator: DockerOrchestrator) : LobbyServiceGrpc.LobbyServiceImplBase() {
+
+    // Храним соответствие RoomID -> Port
+    private val roomServers = ConcurrentHashMap<String, Int>()
+    private val roomName = UUID.randomUUID().toString()
+
+    override fun joinRoom(request: JoinRoomRequest, responseObserver: StreamObserver<JoinRoomResponse>) {
+        val playerId = SecurityContext.PLAYER_ID_KEY.get() ?: "unknown"
+        val roomName = roomName
+
         try {
-            // 1. Проверяем Google ID Token
-            val idToken = verifier.verify(request.idToken)
-
-            if (idToken != null) {
-                val googleUserId = idToken.payload.subject
-                val email = idToken.payload.email
-
-                // Формируем внутренний ID игрока
-                val playerId = "player_${googleUserId.take(10)}"
-
-                // 2. Генерируем наш игровой JWT
-                val expirationTime = System.currentTimeMillis() + 3600 * 1000 // 1 час
-                val token = JWT.create()
-                    .withSubject(playerId)
-                    .withClaim("email", email)
-                    .withExpiresAt(Date(expirationTime))
-                    .sign(Algorithm.HMAC256(jwtSecret))
-
-                val response = AuthResponse.newBuilder()
-                    .setAccessToken(token)
-                    .setPlayerId(playerId)
-                    .setExpiresAt(expirationTime)
-                    .build()
-
-                responseObserver.onNext(response)
-                responseObserver.onCompleted()
-                println("✅ Auth: Игрок $email авторизован. Выдан JWT.")
-            } else {
-                responseObserver.onError(Status.UNAUTHENTICATED.withDescription("Invalid Google Token").asException())
+            // Если для этой комнаты еще нет сервера — создаем
+            val port = roomServers.getOrPut(roomName) {
+                orchestrator.spawnGameServer(roomName)
             }
+
+            val response = JoinRoomResponse.newBuilder()
+                .setStatus(ResponseStatus.OK)
+                .setMessage("Server is ready")
+                .setRoomSessionId(UUID.randomUUID().toString())
+                .setServerInfo(
+                    ServerInfo.newBuilder()
+                        .setAddress("127.0.0.1:$port") // Локально. В проде тут будет внешний IP
+                        .setServerVersion("1.0.0")
+                        .build()
+                )
+                .build()
+
+            responseObserver.onNext(response)
+            responseObserver.onCompleted()
+            println("🏠 Lobby: Игрок $playerId направлен в комнату $roomName на порт $port")
+
         } catch (e: Exception) {
-            println("❌ Auth Error: ${e.message}")
-            responseObserver.onError(Status.INTERNAL.withDescription("Server error during auth").asException())
+            responseObserver.onNext(
+                JoinRoomResponse.newBuilder()
+                    .setStatus(ResponseStatus.ERROR)
+                    .setMessage("Failed to spawn server: ${e.message}")
+                    .build()
+            )
+            responseObserver.onCompleted()
         }
     }
 }
 
+// --- AUTH SERVICE (Code Flow) ---
+@GrpcService
+class AuthGrpcService(
+    @Value("\${game.auth.google-client-id}") private val googleClientId: String,
+    @Value("\${game.auth.google-client-secret}") private val googleClientSecret: String,
+    @Value("\${game.auth.jwt-secret}") private val jwtSecret: String
+) : AuthServiceGrpc.AuthServiceImplBase() {
+
+    override fun authenticateWithGoogle(request: GoogleAuthRequest, responseObserver: StreamObserver<AuthResponse>) {
+        try {
+            // Обмениваем AUTH CODE на токены (Safe Server-side flow)
+            val tokenResponse = GoogleAuthorizationCodeTokenRequest(
+                NetHttpTransport(),
+                GsonFactory(),
+                "https://oauth2.googleapis.com/token",
+                googleClientId,
+                googleClientSecret,
+                request.authCode,
+                request.redirectUri
+            ).execute()
+
+            val idToken = tokenResponse.parseIdToken()
+            val googleUserId = idToken.payload.subject
+            val email = idToken.payload.email
+
+            val playerId = "player_${googleUserId.take(10)}"
+            val expirationTime = System.currentTimeMillis() + 3600 * 1000
+
+            val token = JWT.create()
+                .withSubject(playerId)
+                .withClaim("email", email)
+                .withExpiresAt(Date(expirationTime))
+                .sign(Algorithm.HMAC256(jwtSecret))
+
+            val response = AuthResponse.newBuilder()
+                .setAccessToken(token)
+                .setPlayerId(playerId)
+                .setExpiresAt(expirationTime)
+                .build()
+
+            responseObserver.onNext(response)
+            responseObserver.onCompleted()
+            println("✅ Auth: Игрок $email успешно вошел через Code Flow")
+
+        } catch (e: Exception) {
+            println("❌ Auth Error: ${e.message}")
+            responseObserver.onError(Status.UNAUTHENTICATED.withDescription("Google Auth Failed").asException())
+        }
+    }
+}
+
+// --- INTERCEPTOR (Защита лобби) ---
 @GrpcGlobalServerInterceptor
 class JwtInterceptor(
     @Value("\${game.auth.jwt-secret}") private val jwtSecret: String
@@ -90,7 +173,7 @@ class JwtInterceptor(
         next: ServerCallHandler<ReqT, RespT>
     ): ServerCall.Listener<ReqT> {
 
-        // Разрешаем вызов AuthService без токена
+        // Пропускаем только AuthService
         if (call.methodDescriptor.serviceName != null && call.methodDescriptor.serviceName!!.contains("AuthService")) {
             return next.startCall(call, headers)
         }
@@ -99,53 +182,17 @@ class JwtInterceptor(
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             val token = authHeader.substring(7)
-            try {
-                // Проверяем подпись нашего JWT
+            return try {
                 val decodedJWT = JWT.require(Algorithm.HMAC256(jwtSecret)).build().verify(token)
-                val playerId = decodedJWT.subject
-
-                // Кладем playerId в контекст запроса
-                val context = Context.current().withValue(SecurityContext.PLAYER_ID_KEY, playerId)
-                return Contexts.interceptCall(context, call, headers, next)
+                val context = Context.current().withValue(SecurityContext.PLAYER_ID_KEY, decodedJWT.subject)
+                Contexts.interceptCall(context, call, headers, next)
             } catch (e: Exception) {
-                call.close(Status.UNAUTHENTICATED.withDescription("Session expired"), Metadata())
+                call.close(Status.UNAUTHENTICATED.withDescription("Invalid JWT"), Metadata())
+                object : ServerCall.Listener<ReqT>() {}
             }
-        } else {
-            call.close(Status.UNAUTHENTICATED.withDescription("No authorization provided"), Metadata())
         }
 
+        call.close(Status.UNAUTHENTICATED.withDescription("No token provided"), Metadata())
         return object : ServerCall.Listener<ReqT>() {}
-    }
-}
-
-@GrpcService
-class GameGrpcService(
-    private val kafkaTemplate: KafkaTemplate<String, String>
-) : GameServiceGrpc.GameServiceImplBase() {
-
-    override fun joinSession(request: JoinRequest, responseObserver: StreamObserver<JoinResponse>) {
-        // Берем ID из защищенного контекста
-        val playerId = SecurityContext.PLAYER_ID_KEY.get() ?: "anonymous"
-        val sessionId = UUID.randomUUID().toString()
-
-        kafkaTemplate.send("session-events", sessionId, "PLAYER_JOINED:$playerId")
-
-        val response = JoinResponse.newBuilder()
-            .setSessionId(sessionId)
-            .setStatus("SUCCESS")
-            .build()
-
-        responseObserver.onNext(response)
-        responseObserver.onCompleted()
-        println("📡 Game: Игрок $playerId зашел в сессию $sessionId")
-    }
-
-    override fun getMapLayout(request: MapRequest, responseObserver: StreamObserver<MapLayout>) {
-        val layout = MapLayout.newBuilder()
-            .setTimerSeconds(600)
-            .addRooms(SubLocation.newBuilder().setId("Spawn").setX(0f).setY(0f).build())
-            .build()
-        responseObserver.onNext(layout)
-        responseObserver.onCompleted()
     }
 }

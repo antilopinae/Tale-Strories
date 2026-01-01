@@ -3,46 +3,29 @@
 #include "Sockets.h"
 #include "SocketSubsystem.h"
 #include "IPAddress.h"
-#include "HttpModule.h"
-#include "Interfaces/IHttpRequest.h"
-#include "Interfaces/IHttpResponse.h"
-#include "Json.h"
-#include "Serialization/JsonSerializer.h"
-#include "GenericPlatform/GenericPlatformHttp.h" // Вместо Apple-специфичного
+#include "Common/TcpSocketBuilder.h"
+#include "GenericPlatform/GenericPlatformHttp.h"
+#include "Interfaces/IPv4/IPv4Endpoint.h"
 
 TUniquePtr<GrpcReproxer> UTaleStoriesBPLibrary::ReproxerInstance = nullptr;
 
-bool UTaleStoriesBPLibrary::ConnectAndJoin(FString Token, FString ServerAddress)
+void UTaleStoriesBPLibrary::LoginWithGoogle(FString ClientId, FString ServerAddress, FOnGoogleLoginComplete OnComplete)
 {
+	UE_LOG(LogTemp, Log, TEXT("✅ Starting Auth Process..."));
+
+	// Инициализируем библиотеку, если еще не создана
 	if (!ReproxerInstance.IsValid())
 	{
 		ReproxerInstance = MakeUnique<GrpcReproxer>(TCHAR_TO_UTF8(*ServerAddress));
 	}
 
-	if (ReproxerInstance->ConnectToServer(TCHAR_TO_UTF8(*Token)))
-	{
-		std::string SessionId;
-		if (ReproxerInstance->JoinGameSession(SessionId))
-		{
-			UE_LOG(LogTemp, Log, TEXT("✅ Successfully joined session: %s"), *FString(SessionId.c_str()));
-			return true;
-		}
-	}
-
-	return false;
-}
-
-void UTaleStoriesBPLibrary::LoginWithGoogle(FString ClientId, FString ClientSecret, FString ServerAddress,
-                                            FOnGoogleLoginComplete OnComplete)
-{
-	UE_LOG(LogTemp, Log, TEXT("✅ LoginWithGoogle started!"));
-
 	int32 Port = 1234;
 	FString RedirectUri = FString::Printf(TEXT("http://localhost:%d"), Port);
 
+	// Формируем URL для получения AUTH CODE
 	FString AuthUrl = FString::Printf(
 		TEXT(
-			"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email&access_type=offline&prompt=consent"),
+			"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email&prompt=consent"),
 		*ClientId, *RedirectUri);
 
 	FIPv4Endpoint Endpoint(FIPv4Address::Any, Port);
@@ -53,119 +36,107 @@ void UTaleStoriesBPLibrary::LoginWithGoogle(FString ClientId, FString ClientSecr
 
 	if (!ListenSocket)
 	{
-		UE_LOG(LogTemp, Error, TEXT("❌ Socket Error: Could not bind port 1234"));
+		OnComplete.ExecuteIfBound(false, TEXT("Failed to bind local port 1234"));
 		return;
 	}
 
 	FPlatformProcess::LaunchURL(*AuthUrl, nullptr, nullptr);
 
-	// Используем лямбду с захватом копий, чтобы избежать проблем с памятью
-	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask,
-	          [ListenSocket, ClientId, ClientSecret, RedirectUri, OnComplete, ServerAddress]()
-	          {
-		          bool bCodeReceived = false;
-		          uint32 StartTime = FPlatformTime::Seconds();
+	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [ListenSocket, RedirectUri, OnComplete]()
+	{
+		bool bSuccess = false;
+		FString ErrorMsg = TEXT("Timeout");
+		uint32 StartTime = FPlatformTime::Seconds();
 
-		          while (!bCodeReceived && (FPlatformTime::Seconds() - StartTime) < 60)
-		          {
-			          bool bHasPendingConnection = false;
-			          ListenSocket->HasPendingConnection(bHasPendingConnection);
+		while (!bSuccess && (FPlatformTime::Seconds() - StartTime) < 60)
+		{
+			bool bHasPendingConnection = false;
+			ListenSocket->HasPendingConnection(bHasPendingConnection);
 
-			          if (bHasPendingConnection)
-			          {
-				          TSharedRef<FInternetAddr> RemoteAddress = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->
-					          CreateInternetAddr();
-				          FSocket* ConnectionSocket = ListenSocket->Accept(*RemoteAddress, TEXT("GoogleConnection"));
+			if (bHasPendingConnection)
+			{
+				TSharedRef<FInternetAddr> RemoteAddress = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->
+					CreateInternetAddr();
+				FSocket* ConnectionSocket = ListenSocket->Accept(*RemoteAddress, TEXT("GoogleConnection"));
 
-				          if (ConnectionSocket)
-				          {
-					          FPlatformProcess::Sleep(0.2f);
-					          TArray<uint8> ReceivedData;
-					          uint32 DataSize = 0;
-					          ConnectionSocket->HasPendingData(DataSize);
+				if (ConnectionSocket)
+				{
+					FPlatformProcess::Sleep(0.2f);
+					TArray<uint8> ReceivedData;
+					uint32 DataSize = 0;
+					ConnectionSocket->HasPendingData(DataSize);
 
-					          if (DataSize > 0)
-					          {
-						          ReceivedData.SetNumUninitialized(DataSize);
-						          int32 BytesRead = 0;
-						          ConnectionSocket->Recv(ReceivedData.GetData(), ReceivedData.Num(), BytesRead);
+					if (DataSize > 0)
+					{
+						ReceivedData.SetNumUninitialized(DataSize);
+						int32 BytesRead = 0;
+						ConnectionSocket->Recv(ReceivedData.GetData(), ReceivedData.Num(), BytesRead);
 
-						          FString Payload = FString(
-							          UTF8_TO_TCHAR(reinterpret_cast<const char*>(ReceivedData.GetData())));
+						FString Payload = FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(ReceivedData.GetData())));
 
-						          FString Code;
-						          if (Payload.Split(TEXT("?code="), nullptr, &Code))
-						          {
-							          Code.Split(TEXT(" "), &Code, nullptr);
-							          Code.Split(TEXT("&"), &Code, nullptr);
-							          Code = FGenericPlatformHttp::UrlDecode(Code);
+						FString Code;
+						if (Payload.Split(TEXT("?code="), nullptr, &Code))
+						{
+							Code.Split(TEXT(" "), &Code, nullptr);
+							Code.Split(TEXT("&"), &Code, nullptr);
+							Code = FGenericPlatformHttp::UrlDecode(Code);
 
-							          bCodeReceived = true;
+							// Мы получили CODE! Теперь отдаем его в lib_ue для обмена на JWT через наш Kotlin
+							if (ReproxerInstance->Authenticate(TCHAR_TO_UTF8(*Code), TCHAR_TO_UTF8(*RedirectUri)))
+							{
+								bSuccess = true;
+								ErrorMsg = TEXT("");
+							}
+							else
+							{
+								ErrorMsg = TEXT("Server rejected Auth Code");
+							}
 
-							          // Отвечаем браузеру
-							          FString Response = TEXT(
-								          "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h2>Success! Return to game.</h2></body></html>");
-							          int32 Sent = 0;
-							          ConnectionSocket->Send((uint8*)TCHAR_TO_UTF8(*Response), Response.Len(), Sent);
+							FString Response = TEXT(
+								"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h2>Auth Successful! Return to Unreal.</h2></body></html>");
+							int32 Sent = 0;
+							ConnectionSocket->Send((uint8*)TCHAR_TO_UTF8(*Response), Response.Len(), Sent);
+						}
+					}
+					ConnectionSocket->Close();
+					ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ConnectionSocket);
+				}
+			}
+			FPlatformProcess::Sleep(0.1f);
+		}
 
-							          // Обмен Code -> ID Token
-							          AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask,
-							                    [Code, ClientId, ClientSecret, RedirectUri, OnComplete, ServerAddress]()
-							                    {
-								                    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> TokenReq =
-									                    FHttpModule::Get().CreateRequest();
-								                    TokenReq->SetURL(TEXT("https://oauth2.googleapis.com/token"));
-								                    TokenReq->SetVerb(TEXT("POST"));
-								                    TokenReq->SetHeader(
-									                    TEXT("Content-Type"),
-									                    TEXT("application/x-www-form-urlencoded"));
+		ListenSocket->Close();
+		ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ListenSocket);
 
-								                    FString PostData = FString::Printf(
-									                    TEXT(
-										                    "code=%s&client_id=%s&client_secret=%s&redirect_uri=%s&grant_type=authorization_code"),
-									                    *Code, *ClientId, *ClientSecret, *RedirectUri);
+		// Возвращаемся в Game Thread для вызова делегата
+		AsyncTask(ENamedThreads::GameThread, [OnComplete, bSuccess, ErrorMsg]()
+		{
+			OnComplete.ExecuteIfBound(bSuccess, ErrorMsg);
+		});
+	});
+}
 
-								                    TokenReq->SetContentAsString(PostData);
-								                    TokenReq->OnProcessRequestComplete().BindLambda(
-									                    [OnComplete, ServerAddress](
-									                    FHttpRequestPtr, FHttpResponsePtr Resp,
-									                    bool bSuccess)
-									                    {
-										                    if (bSuccess && Resp.IsValid())
-										                    {
-											                    TSharedPtr<FJsonObject> JsonObj;
-											                    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory
-												                    <>::Create(Resp->GetContentAsString());
-											                    if (FJsonSerializer::Deserialize(Reader, JsonObj))
-											                    {
-												                    FString IdToken;
-												                    if (JsonObj->TryGetStringField(
-													                    TEXT("id_token"), IdToken))
-												                    {
-													                    AsyncTask(ENamedThreads::GameThread,
-														                    [OnComplete, IdToken, ServerAddress]()
-														                    {
-															                    OnComplete.ExecuteIfBound(
-																                    IdToken, ServerAddress);
-														                    });
-													                    return;
-												                    }
-											                    }
-										                    }
-										                    UE_LOG(LogTemp, Error,
-										                           TEXT("❌ Failed to exchange code for token"));
-									                    });
-								                    TokenReq->ProcessRequest();
-							                    });
-						          }
-					          }
-					          ConnectionSocket->Close();
-					          ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ConnectionSocket);
-				          }
-			          }
-			          FPlatformProcess::Sleep(0.1f);
-		          }
-		          ListenSocket->Close();
-		          ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ListenSocket);
-	          });
+bool UTaleStoriesBPLibrary::JoinGameRoom(FString RoomName, FString& OutDedicatedAddr, FString& OutErrorMessage)
+{
+	if (!ReproxerInstance.IsValid()) return false;
+
+	std::string server_addr;
+	if (ReproxerInstance->JoinRoom(TCHAR_TO_UTF8(*RoomName), server_addr))
+	{
+		OutDedicatedAddr = FString(server_addr.c_str());
+
+		// СРАЗУ переключаем библиотеку на работу с новым выделенным сервером
+		ReproxerInstance->ConnectToDedicated(server_addr);
+
+		return true;
+	}
+
+	OutErrorMessage = TEXT("Lobby could not allocate room");
+	return false;
+}
+
+bool UTaleStoriesBPLibrary::PingDedicatedServer(int64& OutServerTime)
+{
+	if (!ReproxerInstance.IsValid()) return false;
+	return ReproxerInstance->PingDedicated(OutServerTime);
 }

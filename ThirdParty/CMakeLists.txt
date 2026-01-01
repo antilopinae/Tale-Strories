@@ -42,7 +42,7 @@ find_package(fmt REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 
-set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/proto/game.proto")
+set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../Api/proto/game.proto")
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 
@@ -56,7 +56,7 @@ add_custom_command(
         "${PROTO_GEN_DIR}/game.grpc.pb.cc"
         "${PROTO_GEN_DIR}/game.grpc.pb.h"
         COMMAND ${PROTOC_EXE}
-        ARGS -I ${CMAKE_CURRENT_SOURCE_DIR}/proto
+        ARGS -I "${CMAKE_CURRENT_SOURCE_DIR}/../Api/proto/"
         --cpp_out ${PROTO_GEN_DIR}
         --grpc_out ${PROTO_GEN_DIR}
         --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN_EXE}
@@ -76,20 +76,6 @@ target_link_libraries(LibUE PUBLIC fmt::fmt gRPC::grpc++ protobuf::libprotobuf)
 target_include_directories(LibUE PUBLIC include ${PROTO_GEN_DIR})
 
 set(OUT_LIB_PATH $<TARGET_FILE:LibUE>)
-
-#if (APPLE)
-#    add_custom_command(TARGET LibUE POST_BUILD
-#            COMMAND echo "Merging all static dependencies into one..."
-#            COMMAND libtool -static -o "${OUT_LIB_PATH}.tmp"
-#            "${OUT_LIB_PATH}"
-#            "$<TARGET_FILE:fmt::fmt>"
-#            "$<TARGET_FILE:gRPC::grpc++>"
-#            "$<TARGET_FILE:protobuf::libprotobuf>"
-#            # Если добавишь новые либы, допиши их сюда через пробел: $<TARGET_FILE:other::lib>
-#            COMMAND mv "${OUT_LIB_PATH}.tmp" "${OUT_LIB_PATH}"
-#            VERBATIM
-#    )
-#endif ()
 
 if(APPLE)
     set(OUT_LIB_PATH $<TARGET_FILE:LibUE>)

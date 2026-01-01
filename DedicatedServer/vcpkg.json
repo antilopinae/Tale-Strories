@@ -1,0 +1,16 @@
+{
+  "name": "tales-story-lib-ue",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "grpc",
+    "protobuf"
+  ],
+  "vcpkg-configuration": {
+    "overlay-ports": [
+      "../ThirdParty/vcpkg/ports"
+    ],
+    "overlay-triplets": [
+      "../ThirdParty/vcpkg/triplets"
+    ]
+  }
+}

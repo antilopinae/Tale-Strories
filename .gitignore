@@ -34,6 +34,13 @@ ThirdParty/CMakeCache.txt
 ThirdParty/*.cmake
 ThirdParty/scripts/*.log
 
+DedicatedServer/build/
+DedicatedServer/generated/
+DedicatedServer/CMakeFiles/
+DedicatedServer/CMakeCache.txt
+DedicatedServer/*.cmake
+DedicatedServer/scripts/*.log
+
 ThirdParty/vcpkg/*
 
 .DS_Store

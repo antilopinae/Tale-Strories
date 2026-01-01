@@ -1,0 +1,23 @@
+# Игнорируем тяжелые папки Unreal
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+Source/
+Content/
+
+# Игнорируем временные файлы vcpkg (ОЧЕНЬ ВАЖНО)
+ThirdParty/vcpkg/buildtrees/
+ThirdParty/vcpkg/downloads/
+ThirdParty/vcpkg/packages/
+ThirdParty/build/
+
+# Игнорируем Gradle
+.gradle/
+**/build/
+
+ThirdParty/vcpkg/vcpkg
+ThirdParty/vcpkg/vcpkg.exe
+**/cmake-build-debug/
+**/cmake-build-release/

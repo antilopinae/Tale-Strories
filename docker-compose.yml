@@ -19,14 +19,27 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
 
   session-service:
-    build: .
+    build:
+      context: .
+      dockerfile: Backend/Dockerfile
     container_name: session-service
     depends_on:
       - kafka
+      - game-server-builder
     ports:
       - "9090:9090"
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      GAME_SERVER_IMAGE: "tale-stories-cpp-server:latest"
+
+  game-server-builder:
+    image: tale-stories-cpp-server:latest # Указываем имя, которое будет искать Kotlin
+    build:
+      context: . # Контекст — корень проекта, чтобы видеть ThirdParty
+      dockerfile: DedicatedServer/Dockerfile
+    # Эта команда просто выводит текст и завершает работу контейнера.
+    # Но Docker Compose при запуске проверит, собран ли образ.
+    command: [ "echo", "Game Server Image is ready" ]
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -36,3 +49,4 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
