@@ -37,30 +37,47 @@ object SecurityContext {
 // --- СЕРВИС УПРАВЛЕНИЯ DOCKER ---
 @Service
 class DockerOrchestrator(
-    // Берем имя образа из docker-compose environment или ставим дефолт
     @Value("\${GAME_SERVER_IMAGE:tale-stories-cpp-server:latest}")
     private val imageGameServer: String
 ) {
-    val config = DefaultDockerClientConfig.createDefaultConfigBuilder().build()
-    val httpClient = ApacheDockerHttpClient.Builder()
-        .dockerHost(config.dockerHost)
-        .sslConfig(config.sslConfig)
-        .build()
+    // Инициализируем клиент один раз
+    private val dockerClient: DockerClient by lazy {
+        val config = DefaultDockerClientConfig.createDefaultConfigBuilder()
+            // Если переменная окружения DOCKER_HOST пуста, используем стандартный путь
+            .withDockerHost(System.getenv("DOCKER_HOST") ?: "unix:///var/run/docker.sock")
+            .build()
 
-    val dockerClient = DockerClientImpl.getInstance(config, httpClient)
+        val httpClient = ApacheDockerHttpClient.Builder()
+            .dockerHost(config.dockerHost)
+            .sslConfig(config.sslConfig)
+            .maxConnections(100)
+            .build()
+
+        DockerClientImpl.getInstance(config, httpClient)
+    }
 
     fun spawnGameServer(roomId: String): Int {
+        // Проверяем, существует ли образ, прежде чем запускать
+        // (Опционально: можно добавить dockerClient.pullImageCmd)
+
         val port = 55000 + Random().nextInt(1000)
 
-        // Создаем и запускаем контейнер с C++ сервером
-        val container = dockerClient.createContainerCmd(imageGameServer)
-            .withName("room_${roomId}_${System.currentTimeMillis()}")
-            .withHostConfig(HostConfig.newHostConfig().withPortBindings(PortBinding.parse("$port:9090")))
-            .exec()
+        try {
+            val container = dockerClient.createContainerCmd(imageGameServer)
+                .withName("room_${roomId}_${System.currentTimeMillis()}")
+                .withHostConfig(HostConfig.newHostConfig()
+                    .withPortBindings(PortBinding.parse("$port:9000"))
+                    .withAutoRemove(true) // Контейнер сам удалится после выключения
+                )
+                .exec()
 
-        dockerClient.startContainerCmd(container.id).exec()
-        println("🚀 Docker: Запущен игровой сервер для комнаты $roomId на порту $port")
-        return port
+            dockerClient.startContainerCmd(container.id).exec()
+            println("🚀 Docker: Started server for room $roomId on port $port")
+            return port
+        } catch (e: Exception) {
+            println("❌ Docker Error: ${e.message}")
+            throw e
+        }
     }
 }
 

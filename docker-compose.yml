@@ -26,11 +26,14 @@ services:
     depends_on:
       - kafka
       - game-server-builder
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "9090:9090"
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       GAME_SERVER_IMAGE: "tale-stories-cpp-server:latest"
+      DOCKER_HOST: unix:///var/run/docker.sock
 
   game-server-builder:
     image: tale-stories-cpp-server:latest # Указываем имя, которое будет искать Kotlin

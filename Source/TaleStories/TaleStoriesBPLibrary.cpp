@@ -86,9 +86,11 @@ void UTaleStoriesBPLibrary::LoginWithGoogle(FString ClientId, FString ServerAddr
 							{
 								bSuccess = true;
 								ErrorMsg = TEXT("");
+								UE_LOG(LogTemp, Log, TEXT("Server Authenticate"));
 							}
 							else
 							{
+								UE_LOG(LogTemp, Warning, TEXT("Authentication failed: %s"), *RedirectUri);
 								ErrorMsg = TEXT("Server rejected Auth Code");
 							}
 
@@ -102,7 +104,6 @@ void UTaleStoriesBPLibrary::LoginWithGoogle(FString ClientId, FString ServerAddr
 					ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(ConnectionSocket);
 				}
 			}
-			FPlatformProcess::Sleep(0.1f);
 		}
 
 		ListenSocket->Close();
@@ -111,6 +112,7 @@ void UTaleStoriesBPLibrary::LoginWithGoogle(FString ClientId, FString ServerAddr
 		// Возвращаемся в Game Thread для вызова делегата
 		AsyncTask(ENamedThreads::GameThread, [OnComplete, bSuccess, ErrorMsg]()
 		{
+			UE_LOG(LogTemp, Log, TEXT("Run OnComplete for LoginWithGoogle"));
 			OnComplete.ExecuteIfBound(bSuccess, ErrorMsg);
 		});
 	});
@@ -124,11 +126,16 @@ bool UTaleStoriesBPLibrary::JoinGameRoom(FString RoomName, FString& OutDedicated
 	if (ReproxerInstance->JoinRoom(TCHAR_TO_UTF8(*RoomName), server_addr))
 	{
 		OutDedicatedAddr = FString(server_addr.c_str());
+		
+		UE_LOG(LogTemp, Log, TEXT("Joined Room: %s"), *OutDedicatedAddr);
 
 		// СРАЗУ переключаем библиотеку на работу с новым выделенным сервером
 		ReproxerInstance->ConnectToDedicated(server_addr);
 
 		return true;
+	} else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Failed to join room %s"), *RoomName);
 	}
 
 	OutErrorMessage = TEXT("Lobby could not allocate room");
