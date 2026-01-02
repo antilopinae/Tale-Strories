@@ -59,4 +59,4 @@ env/
 
 .gradle/
 **/build/
-!**/src/**/build/
+!**/src/**/build/DedicatedServer/TaleStories.app

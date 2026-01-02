@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "Networking.h"
 #include "lib_ue.hpp"
 #include "TaleStoriesBPLibrary.generated.h"
 
@@ -28,4 +29,15 @@ public:
 	// 3. Пинг выделенного сервера (проверка связи с C++ контейнером)
 	UFUNCTION(BlueprintCallable, Category = "TaleStories|Dedicated")
 	static bool PingDedicatedServer(int64& OutServerTime);
+	
+#ifdef SERVER_MODE
+	static TUniquePtr<DedicatedServerWrapper> ServerInstance;
+#endif
+	
+public:
+	UFUNCTION(BlueprintCallable, Category = "TaleStoriesServer|Dedicated")
+	static void StartDedicatedServer(int32 Port);
+
+	UFUNCTION(BlueprintCallable, Category = "TaleStoriesServer|Dedicated")
+	static void StopDedicatedServer();
 };

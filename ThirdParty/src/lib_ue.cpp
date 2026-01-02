@@ -15,6 +15,11 @@ using grpc::Status;
 using game::AuthService;
 using game::LobbyService;
 using game::DedicatedService;
+using game::PingRequest;
+using game::PingResponse;
+// using grpc::Server;
+// using grpc::ServerBuilder;
+// using grpc::ServerContext;
 
 struct GrpcReproxer::Impl {
     std::shared_ptr<Channel> lobby_channel;
@@ -103,3 +108,55 @@ bool GrpcReproxer::PingDedicated(int64_t &out_server_time) {
     }
     return false;
 }
+
+// // 1. Реализация логики сервиса
+// class DedicatedServiceImpl final : public DedicatedService::Service {
+//     Status Ping(ServerContext* context, const PingRequest* request, PingResponse* response) override {
+//         // Логика обработки пинга
+//         response->set_server_time(std::time(nullptr));
+//         return Status::OK;
+//     }
+//
+//     // Сюда можно добавить JoinMatch, SendChat и т.д.
+// };
+//
+// struct DedicatedServerWrapper::Impl {
+//     std::unique_ptr<Server> server;
+// };
+//
+// DedicatedServerWrapper::DedicatedServerWrapper() : impl_(std::make_unique<Impl>()) {}
+//
+// DedicatedServerWrapper::~DedicatedServerWrapper() {
+//     Stop();
+// }
+//
+// void DedicatedServerWrapper::Start(int32_t port) {
+//     if (bIsRunning) return;
+//
+//     // Запускаем сервер в отдельном std::thread
+//     server_thread_ = std::make_unique<std::thread>([this, port]() {
+//         std::string server_address = "0.0.0.0:" + std::to_string(port);
+//         DedicatedServiceImpl service;
+//
+//         ServerBuilder builder;
+//         builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+//         builder.RegisterService(&service);
+//
+//         impl_->server = builder.BuildAndStart();
+//         this->bIsRunning = true;
+//
+//         std::cout << "Dedicated Server started on " << server_address << std::endl;
+//
+//         impl_->server->Wait(); // Это блокирующий вызов, поэтому мы в отдельном потоке
+//     });
+// }
+//
+// void DedicatedServerWrapper::Stop() {
+//     if (impl_->server) {
+//         impl_->server->Shutdown();
+//         if (server_thread_ && server_thread_->joinable()) {
+//             server_thread_->join();
+//         }
+//         bIsRunning = false;
+//     }
+// }

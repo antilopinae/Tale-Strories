@@ -5,7 +5,8 @@ public class TaleStories : ModuleRules
 	public TaleStories(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-		PublicDependencyModuleNames.AddRange(new string[] {
+		PublicDependencyModuleNames.AddRange(new string[]
+		{
 			"Core",
 			"CoreUObject",
 			"Engine",
@@ -15,14 +16,14 @@ public class TaleStories : ModuleRules
 			"Sockets",
 			"Networking",
 			"HTTP",
-			"WebBrowser",
-			"Json",        // Добавь это
+			"Json", // Добавь это
 			"JsonUtilities" // Добавь это
 		});
-		
+
 		PrivateDependencyModuleNames.AddRange(new string[] { });
-		
-		PublicIncludePaths.AddRange(new string[] {
+
+		PublicIncludePaths.AddRange(new string[]
+		{
 			"TaleStories"
 		});
 	}

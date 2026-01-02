@@ -15,6 +15,8 @@ service AuthService {
 
   // Шаг 2 (Опционально): Обновление токена, если он протух
   rpc RefreshToken (RefreshRequest) returns (AuthResponse);
+
+  rpc Logout (Empty) returns (Empty);
 }
 
 // GameService: Работает на главном Kotlin-сервере (Lobby/Master Server).
@@ -22,12 +24,20 @@ service AuthService {
 service LobbyService {
   // Запрос на поиск или создание комнаты (здесь триггерится спавн Docker)
   rpc JoinRoom (JoinRoomRequest) returns (JoinRoomResponse);
+
+  rpc GetAvailableRooms (Empty) returns (RoomList);
 }
 
 // DedicatedService: Будет работать внутри созданного C++ контейнера.
 // Сюда клиент подключается после того, как получил адрес из JoinRoom.
 service DedicatedService {
   rpc Ping (PingRequest) returns (PingResponse);
+
+  rpc StreamUpdates (stream ClientFrame) returns (stream ServerFrame);
+}
+
+service DedicatedServiceServer {
+  rpc StreamUpdates (stream ServerFrame) returns (stream ClientFrame);
 }
 
 // === СООБЩЕНИЯ ===
@@ -62,6 +72,8 @@ message JoinRoomResponse {
   // Данные для подключения к C++ серверу
   ServerInfo server_info = 3;
   string room_session_id = 4;
+
+  SessionConfig session_config = 5;
 }
 
 message ServerInfo {
@@ -77,6 +89,22 @@ enum ResponseStatus {
   ERROR = 4;
 }
 
+message RoomList {
+  repeated RoomInfo rooms = 1;
+}
+
+message RoomInfo {
+  string id = 1;
+  int32 players_count = 2;
+  int32 max_players = 3;
+}
+
+message SessionConfig {
+  string seed = 1;             // Сид для генерации случайных подлокаций
+  int64 match_duration_sec = 2; // Таймер (из GDD: потеря лута по истечении)
+  string initial_sublocation_id = 3;
+}
+
 // --- Тестовые сообщения для C++ сервера ---
 
 message PingRequest {
@@ -86,3 +114,180 @@ message PingRequest {
 message PingResponse {
   int64 server_time = 1;
 }
+
+// === ГЕЙМПЛЕЙ: ECS И МЕХАНИКИ ===
+
+// Сообщение от Клиента к Серверу (Input)
+message ClientFrame {
+  int64 frame_id = 1;
+  PlayerInput input = 2;
+  Interaction interaction = 3;
+}
+
+message PlayerInput {
+  float move_x = 1;
+  float move_y = 2;
+
+  // Список действий в текущем кадре (может быть несколько кнопок)
+  repeated Action actions = 3;
+}
+
+message Action {
+  ActionType type = 1;
+  // Время нажатия для компенсации лагов (опционально)
+  int64 timestamp_ms = 2;
+}
+
+enum ActionType {
+  LIGHT_ATTACK = 0;
+  HEAVY_ATTACK = 1;
+  DASH = 2;
+  USE_ABILITY_1 = 3;
+  USE_ABILITY_2 = 4;
+  INTERACT = 5;
+}
+
+// Сообщение от Сервера к Клиенту (World State)
+message ServerFrame {
+  int64 frame_id = 1;
+  int64 match_timer_ms = 2;
+  repeated EntityUpdate entities = 3;
+  repeated uint32 despawn_ids = 4;    // ID тех, кто только что исчез из поля зрения
+  repeated GameEvent events = 5;
+}
+
+// ECS: Обновление сущности
+message EntityUpdate {
+  uint32 entity_id = 1;
+  EntityType type = 2;
+
+  // Компоненты (опционально присутствуют в обновлении)
+  PositionComponent pos = 3;
+  PhysicsComponent physics = 4;
+  StatsComponent stats = 5;
+  InventoryComponent inventory = 6;
+  string sublocation_id = 7; // На какой подлокации находится (для отрисовки фона)
+  CombatComponent combat = 8;
+  AnimationComponent animation = 9;
+  VisibilityLevel visibility = 10;
+}
+
+enum VisibilityLevel {
+  ROOT_SUBLOCATION = 0; // Игрок в той же комнате, что и я (полная видимость)
+  BACKGROUND_WINDOW = 1; // Вижу игрока через "окно" или на заднем фоне соседней локации
+  MINIMAP_ONLY = 2;      // Опционально: вижу только точку на карте (например, союзника), но не саму модель
+}
+
+message AnimationComponent {
+  string state_id = 1;      // "RUN", "IDLE", "ATTACK_COMBO_1", "DASH"
+  float normalized_time = 2; // На каком моменте находится анимация (0.0 - 1.0)
+  bool flip_x = 3;          // Куда смотрит игрок (влево/вправо)
+}
+
+message CombatComponent {
+  // Текущее состояние: ID способности или комбо, которое проигрывается
+  uint32 active_ability_id = 1;
+
+  // Текущая фаза (0 - замах, 1 - активная фаза/урон, 2 - восстановление)
+  AbilityPhase phase = 2;
+
+  // На сколько процентов завершена текущая стадия (для синхронизации анимации)
+  float progress = 3;
+
+  // Слоты перезарядки (Cooldowns)
+  map<uint32, int64> cooldowns = 4; // AbilityID -> Timestamp окончания
+}
+
+enum AbilityPhase {
+  STARTUP = 0;   // Подготовка (можно прервать)
+  ACTIVE = 1;    // Момент нанесения урона/хила
+  RECOVERY = 2;  // "Отходняк" после удара
+  IDLE = 3;      // Покой
+}
+
+enum EntityType {
+  PLAYER = 0;
+  MOB = 1;
+  BOSS = 2;
+  ITEM = 3;
+  EXIT_POINT = 4;
+}
+
+message PositionComponent {
+  float x = 1;
+  float y = 2;
+  float rotation = 3;
+}
+
+message PhysicsComponent {
+  float velocity_x = 1;
+  float velocity_y = 2;
+}
+
+message StatsComponent {
+  int32 hp = 1;
+  int32 max_hp = 2;
+  bool is_dead = 3;
+}
+
+// === МЕХАНИКИ ИЗ GDD (Лут, Смерть, Выход) ===
+
+message InventoryComponent {
+  repeated string item_ids = 1;
+  int32 resource_count = 2;
+}
+
+message Interaction {
+  InteractionType type = 1;
+  uint32 target_entity_id = 2;
+}
+
+enum InteractionType {
+  PICKUP = 0;
+  USE_EXIT = 1;
+  GOTO_SUBLOCATION = 2;
+}
+
+message GameEvent {
+  oneof event {
+    PlayerDied death = 1;       // "Полная потеря лута после смерти"
+    ExtractionSuccess exit = 2; // "Добраться до точки выхода"
+    SublocationChanged room = 3; // Переход между подлокациями
+    AbilityEffect ability_effect = 4;
+  }
+}
+
+message AbilityEffect {
+  uint32 caster_id = 1;
+  uint32 target_id = 2;      // Если цель есть
+  uint32 ability_id = 3;     // ID из твоего конфига способностей
+  EffectType type = 4;
+
+  // Координаты эффекта (например, точка взрыва)
+  float x = 5;
+  float y = 6;
+}
+
+enum EffectType {
+  SLASH_VISUAL = 0;   // Мазок мечом
+  EXPLOSION = 1;      // Взрыв
+  BUFF_APPLIED = 2;   // Эффект свечения на игроке
+  SCREEN_SHAKE = 3;   // Тряска экрана
+}
+
+message PlayerDied {
+  string player_id = 1;
+  repeated string dropped_items = 2;
+}
+
+message ExtractionSuccess {
+  string player_id = 1;
+  int32 total_loot_collected = 2;
+}
+
+message SublocationChanged {
+  string new_sublocation_id = 1;
+  repeated string visible_neighbor_ids = 2; // Для механики "видеть на заднем фоне другую подлокацию"
+}
+
+message Empty {}

@@ -126,14 +126,15 @@ bool UTaleStoriesBPLibrary::JoinGameRoom(FString RoomName, FString& OutDedicated
 	if (ReproxerInstance->JoinRoom(TCHAR_TO_UTF8(*RoomName), server_addr))
 	{
 		OutDedicatedAddr = FString(server_addr.c_str());
-		
+
 		UE_LOG(LogTemp, Log, TEXT("Joined Room: %s"), *OutDedicatedAddr);
 
 		// СРАЗУ переключаем библиотеку на работу с новым выделенным сервером
 		ReproxerInstance->ConnectToDedicated(server_addr);
 
 		return true;
-	} else
+	}
+	else
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Failed to join room %s"), *RoomName);
 	}
@@ -146,4 +147,33 @@ bool UTaleStoriesBPLibrary::PingDedicatedServer(int64& OutServerTime)
 {
 	if (!ReproxerInstance.IsValid()) return false;
 	return ReproxerInstance->PingDedicated(OutServerTime);
+}
+
+#ifdef SERVER_MODE
+TUniquePtr<DedicatedServerWrapper> UTaleStoriesBPLibrary::ServerInstance = nullptr;
+#endif
+
+void UTaleStoriesBPLibrary::StartDedicatedServer(int32 Port)
+{
+#ifdef SERVER_MODE
+	if (!ServerInstance.IsValid())
+	{
+		ServerInstance = MakeUnique<DedicatedServerWrapper>();
+	}
+	UE_LOG(LogTemp, Log, TEXT("🎮 [SERVER] Initializing gRPC Game Server..."));
+	ServerInstance->Start(9090);
+#else
+	UE_LOG(LogTemp, Log, TEXT("🎮 [SERVER] Game Server not started ..."));
+#endif
+}
+
+void UTaleStoriesBPLibrary::StopDedicatedServer()
+{
+#ifdef SERVER_MODE
+	if (ServerInstance.IsValid())
+	{
+		ServerInstance->Stop();
+		ServerInstance.Reset();
+	}
+#endif
 }

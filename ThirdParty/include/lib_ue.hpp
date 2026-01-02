@@ -2,8 +2,15 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <thread>
 
-class GrpcReproxer {
+#if defined(_WIN32)
+    #define LIBUE_API __declspec(dllexport)
+#else
+    #define LIBUE_API __attribute__((visibility("default")))
+#endif
+
+class LIBUE_API GrpcReproxer {
 public:
     GrpcReproxer(const std::string &lobby_url);
 
@@ -25,4 +32,27 @@ private:
     std::string jwt_token_;
     struct Impl;
     Impl *impl_;
+};
+
+class LIBUE_API DedicatedServerWrapper {
+public:
+    DedicatedServerWrapper() {
+    }
+
+    ~DedicatedServerWrapper() {
+    }
+
+    // Запуск сервера в отдельном потоке, чтобы не вешать игру
+    void Start(int32_t port) {
+    }
+
+    // Остановка сервера
+    void Stop() {
+    }
+
+private:
+    // struct Impl;
+    // std::unique_ptr<Impl> impl_;
+    std::unique_ptr<std::thread> server_thread_;
+    bool bIsRunning = false;
 };

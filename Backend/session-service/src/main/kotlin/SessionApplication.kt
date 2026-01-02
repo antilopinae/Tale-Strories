@@ -65,9 +65,10 @@ class DockerOrchestrator(
         try {
             val container = dockerClient.createContainerCmd(imageGameServer)
                 .withName("room_${roomId}_${System.currentTimeMillis()}")
-                .withHostConfig(HostConfig.newHostConfig()
-                    .withPortBindings(PortBinding.parse("$port:9000"))
-                    .withAutoRemove(true) // Контейнер сам удалится после выключения
+                .withHostConfig(
+                    HostConfig.newHostConfig()
+                        .withPortBindings(PortBinding.parse("$port:9000"))
+                        .withAutoRemove(true) // Контейнер сам удалится после выключения
                 )
                 .exec()
 
@@ -95,9 +96,9 @@ class LobbyGrpcService(private val orchestrator: DockerOrchestrator) : LobbyServ
 
         try {
             // Если для этой комнаты еще нет сервера — создаем
-            val port = roomServers.getOrPut(roomName) {
-                orchestrator.spawnGameServer(roomName)
-            }
+//            val port = roomServers.getOrPut(roomName) {
+//                orchestrator.spawnGameServer(roomName)
+//            }
 
             val response = JoinRoomResponse.newBuilder()
                 .setStatus(ResponseStatus.OK)
@@ -105,7 +106,8 @@ class LobbyGrpcService(private val orchestrator: DockerOrchestrator) : LobbyServ
                 .setRoomSessionId(UUID.randomUUID().toString())
                 .setServerInfo(
                     ServerInfo.newBuilder()
-                        .setAddress("127.0.0.1:$port") // Локально. В проде тут будет внешний IP
+//                        .setAddress("127.0.0.1:$port") // Локально. В проде тут будет внешний IP
+                        .setAddress("host.docker.internal:9000")
                         .setServerVersion("1.0.0")
                         .build()
                 )
@@ -113,7 +115,7 @@ class LobbyGrpcService(private val orchestrator: DockerOrchestrator) : LobbyServ
 
             responseObserver.onNext(response)
             responseObserver.onCompleted()
-            println("🏠 Lobby: Игрок $playerId направлен в комнату $roomName на порт $port")
+            println("🏠 Lobby: Игрок $playerId направлен в комнату $roomName на порт 9000")
 
         } catch (e: Exception) {
             responseObserver.onNext(

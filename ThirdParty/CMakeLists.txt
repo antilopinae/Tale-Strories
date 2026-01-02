@@ -4,6 +4,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 if (APPLE)
     list(APPEND CMAKE_IGNORE_PATH "/opt/homebrew")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "" FORCE)
+    set(CMAKE_OSX_SYSROOT "macosx" CACHE STRING "" FORCE)
 endif ()
 
 include(CCache OPTIONAL)
@@ -36,6 +38,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+
 # dependencies
 # find_package(PkgConfig REQUIRED)
 find_package(fmt REQUIRED)
@@ -65,37 +70,72 @@ add_custom_command(
         COMMENT "Generating gRPC and protobuf files from ${PROTO_FILE}"
 )
 
-add_library(LibUE STATIC
+#add_library(LibUE STATIC
+#        src/lib_ue.cpp
+#        "${PROTO_GEN_DIR}/game.pb.cc"
+#        "${PROTO_GEN_DIR}/game.grpc.pb.cc"
+#)
+#
+#target_link_libraries(LibUE PUBLIC fmt::fmt gRPC::grpc++ protobuf::libprotobuf)
+#
+#target_include_directories(LibUE PUBLIC include ${PROTO_GEN_DIR})
+#
+#set(OUT_LIB_PATH $<TARGET_FILE:LibUE>)
+#
+#if(APPLE)
+#    set_target_properties(LibUE PROPERTIES INSTALL_RPATH "@loader_path")
+#endif()
+#
+#if(APPLE)
+#    set(OUT_LIB_PATH $<TARGET_FILE:LibUE>)
+#
+#    # 1. Находим ПУТЬ к папке либ vcpkg
+#    # Это будет что-то вроде ThirdParty/vcpkg_installed/arm64-osx-static/lib
+#    set(VCPKG_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib")
+#
+#    # 2. Собираем список ВТОРОСТЕПЕННЫХ библиотек (Abseil, gRPC core, и т.д.)
+#    # Мы берем ВСЕ файлы .a из vcpkg, чтобы ничего не забыть
+#    file(GLOB_RECURSE ALL_VCPKG_LIBS "${VCPKG_LIB_DIR}/*.a")
+#
+##    list(FILTER ALL_VCPKG_LIBS EXCLUDE REGEX ".*/libssl\\.a$")
+##    list(FILTER ALL_VCPKG_LIBS EXCLUDE REGEX ".*/libcrypto\\.a$")
+##    list(FILTER ALL_VCPKG_LIBS EXCLUDE REGEX ".*/libz\\.a$")
+#
+#    # Также рекомендуется исключить лишние системные или отладочные либы vcpkg, если они там есть
+##     list(FILTER ALL_VCPKG_LIBS EXCLUDE REGEX ".*/pkgconfig.*")
+#
+#    # 3. Объединяем
+#    add_custom_command(TARGET LibUE POST_BUILD
+#            COMMAND echo "Bundling ALL static dependencies into libLibUE.a..."
+#            # Важно: удаляем libz.a из списка, если он там есть, так как Unreal имеет свой zlib
+#            # (это предотвратит ошибки дублирования символов)
+#            COMMAND libtool -static -o "${OUT_LIB_PATH}.tmp" "${OUT_LIB_PATH}" ${ALL_VCPKG_LIBS}
+#            COMMAND mv "${OUT_LIB_PATH}.tmp" "${OUT_LIB_PATH}"
+#            COMMENT "Merging dependencies using libtool"
+#            VERBATIM
+#    )
+#endif()
+
+add_library(LibUE SHARED
         src/lib_ue.cpp
         "${PROTO_GEN_DIR}/game.pb.cc"
         "${PROTO_GEN_DIR}/game.grpc.pb.cc"
 )
 
-target_link_libraries(LibUE PUBLIC fmt::fmt gRPC::grpc++ protobuf::libprotobuf)
+# 2. ОЧЕНЬ ВАЖНО: Скрываем внутренние символы (OpenSSL 3.0, gRPC),
+# чтобы они не конфликтовали с внутренностями Unreal
+set_target_properties(LibUE PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+        MACOSX_RPATH ON
+        INSTALL_RPATH "@loader_path"
+)
+
+# 3. Линкуем всё ПРИВАТНО (чтобы это зашилось внутрь dylib)
+target_link_libraries(LibUE PRIVATE
+        fmt::fmt
+        gRPC::grpc++
+        protobuf::libprotobuf
+)
 
 target_include_directories(LibUE PUBLIC include ${PROTO_GEN_DIR})
-
-set(OUT_LIB_PATH $<TARGET_FILE:LibUE>)
-
-if(APPLE)
-    set(OUT_LIB_PATH $<TARGET_FILE:LibUE>)
-
-    # 1. Находим ПУТЬ к папке либ vcpkg
-    # Это будет что-то вроде ThirdParty/vcpkg_installed/arm64-osx-static/lib
-    set(VCPKG_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib")
-
-    # 2. Собираем список ВТОРОСТЕПЕННЫХ библиотек (Abseil, gRPC core, и т.д.)
-    # Мы берем ВСЕ файлы .a из vcpkg, чтобы ничего не забыть
-    file(GLOB_RECURSE ALL_VCPKG_LIBS "${VCPKG_LIB_DIR}/*.a")
-
-    # 3. Объединяем
-    add_custom_command(TARGET LibUE POST_BUILD
-            COMMAND echo "Bundling ALL static dependencies into libLibUE.a..."
-            # Важно: удаляем libz.a из списка, если он там есть, так как Unreal имеет свой zlib
-            # (это предотвратит ошибки дублирования символов)
-            COMMAND libtool -static -o "${OUT_LIB_PATH}.tmp" "${OUT_LIB_PATH}" ${ALL_VCPKG_LIBS}
-            COMMAND mv "${OUT_LIB_PATH}.tmp" "${OUT_LIB_PATH}"
-            COMMENT "Merging dependencies using libtool"
-            VERBATIM
-    )
-endif()
